@@ -1,0 +1,12 @@
+# Python 缓存文件
+__pycache__/
+*.py[cod]
+
+# 视频与测试文件 (避免传大文件到 GitHub)
+*.mp4
+*.mkv
+*concat.txt
+
+# 输出目录 (兼容当前目录和上一级目录的 output)
+output/
+../output/
