@@ -49,7 +49,7 @@ class VideoProcessor:
     def cut_video_segment(cls, input_path: str, start_sec: float, end_sec: float, output_path: str, compress: bool = False) -> subprocess.CompletedProcess:
         """
         任务 3.2: 实现单段视频的高速流拷贝裁剪。
-        任务 3.6: 增加 compress 参数支持，转码为 720p 并且启用 Web 优化。
+        任务 3.6: 增加 compress 参数支持，转码为 720p、H.264、AAC 以保障 iPhone Safari 兼容性，并启用 Web 优化。
         利用 FFmpeg 的快速定位机制和 stream copy 实现无损极速裁剪。
         
         :param input_path: 原始视频路径
@@ -69,9 +69,10 @@ class VideoProcessor:
             command.extend([
                 '-vf', 'scale=-2:720',      # 等比例缩放，高度限制为 720p (宽度自动适配偶数)
                 '-c:v', 'libx264',          # 视频使用 H.264 编码
+                '-pix_fmt', 'yuv420p',      # 强制像素格式为 yuv420p，避免源视频(如10bit)导致 Safari/iOS 无法播放
                 '-crf', '28',               # 提高 CRF 值 (23->28)，数值越大体积越小，28是低码率较高画质的甜点值
                 '-preset', 'slow',          # 使用 slow 预设，用稍长的编码时间换取更小的文件体积
-                '-c:a', 'aac',              # 音频使用 AAC 编码
+                '-c:a', 'aac',              # 音频强制使用 AAC 编码，以满足 iPhone/Safari 的兼容性要求
                 '-b:a', '96k',              # 降低音频码率到 96k (人声对话场景完全足够)
                 '-movflags', '+faststart'   # Web 串流优化，便于边下边播
             ])
@@ -85,7 +86,7 @@ class VideoProcessor:
     def concat_video_segments(cls, segment_paths: List[str], concat_txt_path: str, output_path: str, compress: bool = False) -> subprocess.CompletedProcess:
         """
         任务 3.3: 实现同一集中多个零碎保留片段的无缝拼接。
-        任务 3.6: 增加 compress 参数，拼接时若开启压缩则追加 Web 优化标志。
+        任务 3.6: 增加 compress 参数，拼接时若开启压缩则追加 Web 优化标志，保障合并后视频依然支持 faststart 边下边播。
         使用 FFmpeg 的 concat demuxer 将多个物理片段快速拼接成一个完整的视频文件。
         
         :param segment_paths: 待拼接的视频片段路径列表

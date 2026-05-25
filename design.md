@@ -40,7 +40,7 @@
 **输入**：原始视频文件路径，`SplitPlan` 列表，输出目录，可选配置项（如是否压缩至 720p 适应串流）。
 **输出**：按集数命名的新的 `.mp4` 文件（如 `Movie_Part01.mp4`）。
 **内部核心步骤**：
-1. 遍历 `SplitPlan` 中的 `valid_time_ranges`，使用 FFmpeg 的 `-ss` 和 `-to` 参数进行切割。支持两种模式：极速无损流拷贝（`-c copy`）或网络优化压缩模式（转换至 720p 并启用 `-movflags +faststart`）。
+1. 遍历 `SplitPlan` 中的 `valid_time_ranges`，使用 FFmpeg 的 `-ss` 和 `-to` 参数进行切割。支持两种模式：极速无损流拷贝（`-c copy`）或网络优化压缩模式（转换至 720p、视频 H.264 (`-c:v libx264`)、音频 AAC (`-c:a aac`) 以兼容 iOS/Safari 播放，并启用 `-movflags +faststart`）。
 2. 如果一个 `SplitPlan` 内包含多个零碎的保留片段，使用 FFmpeg 的 `concat demuxer` 将它们无缝拼接成一集。
 
 ### 3.4 核心调度模块 (Main Controller)
