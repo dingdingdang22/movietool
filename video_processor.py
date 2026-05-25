@@ -116,3 +116,24 @@ class VideoProcessor:
         command.append(output_path)
         
         return cls.run_ffmpeg(command)
+
+    @classmethod
+    def fix_audio_compatibility(cls, input_path: str, output_path: str) -> subprocess.CompletedProcess:
+        """
+        新增：修复已处理视频的音频格式兼容性。
+        原样拷贝视频流（极速），强制将音频流重新编码为 AAC，并加入 faststart 优化以支持 iPhone/Safari 播放。
+        
+        :param input_path: 原始视频路径
+        :param output_path: 修复后视频的临时输出路径
+        """
+        command = [
+            cls.get_ffmpeg_path(),
+            '-y',
+            '-i', input_path,
+            '-c:v', 'copy',             # 视频流直接拷贝，免去耗时的重编码
+            '-c:a', 'aac',              # 强制音频使用 AAC 编码以满足 iOS Safari 要求
+            '-b:a', '96k',              # 锁定音频码率
+            '-movflags', '+faststart',  # 启用 Web 边下边播串流优化
+            output_path
+        ]
+        return cls.run_ffmpeg(command)
