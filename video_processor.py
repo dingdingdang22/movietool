@@ -73,6 +73,7 @@ class VideoProcessor:
                 '-crf', '28',               # 提高 CRF 值 (23->28)，数值越大体积越小，28是低码率较高画质的甜点值
                 '-preset', 'slow',          # 使用 slow 预设，用稍长的编码时间换取更小的文件体积
                 '-c:a', 'aac',              # 音频强制使用 AAC 编码，以满足 iPhone/Safari 的兼容性要求
+                '-ac', '2',                 # 强制双声道立体声，避免 5.1 等多声道导致 AAC 编码器报错或移动端无声
                 '-b:a', '96k',              # 降低音频码率到 96k (人声对话场景完全足够)
                 '-movflags', '+faststart'   # Web 串流优化，便于边下边播
             ])
@@ -132,6 +133,7 @@ class VideoProcessor:
             '-i', input_path,
             '-c:v', 'copy',             # 视频流直接拷贝，免去耗时的重编码
             '-c:a', 'aac',              # 强制音频使用 AAC 编码以满足 iOS Safari 要求
+            '-ac', '2',                 # 强制双声道立体声，避免 5.1 等多声道导致 AAC 编码报错
             '-b:a', '96k',              # 锁定音频码率
             '-movflags', '+faststart',  # 启用 Web 边下边播串流优化
             output_path
