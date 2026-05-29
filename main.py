@@ -41,7 +41,7 @@ class MainController:
         print(">>> 启动电影字幕智能分割流水线...")
         
         # 任务 4.2: 实例化 Phase 1，获取完整的切割方案
-        print(f"[*] 正在分析主字幕时间轴 (Phase 1): {self.config.subtitle_path}")
+        print(f"[*] 正在分析英文字幕时间轴 (Phase 1): {self.config.subtitle_path}")
         analyzer = TimelineAnalyzer(
             subtitle_path=self.config.subtitle_path,
             silence_threshold=self.config.silence_threshold_sec,
@@ -53,7 +53,7 @@ class MainController:
 
         secondary_dialogues = []
         if self.config.subtitle_path2:
-            print(f"[*] 正在读取第二字幕文件: {self.config.subtitle_path2}")
+            print(f"[*] 正在读取中文字幕文件: {self.config.subtitle_path2}")
             secondary_dialogues = TimelineAnalyzer.parse_subtitles(self.config.subtitle_path2)
 
         # 任务 4.3: 循环遍历切割方案，调度 Phase 2 生成字幕，调度 Phase 3 生成视频
@@ -143,24 +143,24 @@ def parse_args() -> AppConfig:
             print("[-] 取消了选择，程序退出。")
             sys.exit(0)
             
-        print("[->] 请在弹出的窗口中选择【字幕文件(.srt)】...")
+        print("[->] 请在弹出的窗口中选择【英文字幕文件(.srt)】...")
         subtitle_path = filedialog.askopenfilename(
             parent=root,
-            title="2/2 请选择对应的字幕文件 (.srt)",
+            title="2/2 请选择英文字幕文件 (.srt)",
             filetypes=[("SRT字幕文件", "*.srt"), ("所有文件", "*.*")]
         )
         if not subtitle_path:
             print("[-] 取消了选择，程序退出。")
             sys.exit(0)
             
-        print("[->] 请在弹出的窗口中选择【第二字幕文件(.srt)】(可选)...")
+        print("[->] 请在弹出的窗口中选择【中文字幕文件(.srt)】(可选)...")
         subtitle_path2 = filedialog.askopenfilename(
             parent=root,
-            title="可选: 请选择第二字幕文件 (没有请直接点击取消)",
+            title="可选: 请选择中文字幕文件 (没有请直接点击取消)",
             filetypes=[("SRT字幕文件", "*.srt"), ("所有文件", "*.*")]
         )
         if not subtitle_path2:
-            print("[-] 未选择第二字幕文件，按单字幕模式处理。")
+            print("[-] 未选择中文字幕文件，按单字幕模式处理。")
             subtitle_path2 = ""
             
         print("[->] 请在弹出的窗口中确认【静音剔除阈值】...")
@@ -200,7 +200,9 @@ def parse_args() -> AppConfig:
         )
 
         print(f"\n[+] 视频路径: {video_path}")
-        print(f"[+] 字幕路径: {subtitle_path}")
+        print(f"[+] 英文字幕路径: {subtitle_path}")
+        if subtitle_path2:
+            print(f"[+] 中文字幕路径: {subtitle_path2}")
         print(f"[+] 阈值设定: 静音剔除 {silence_threshold}秒 | 分集时长 {min_minutes}-{max_minutes}分钟 | 开启压缩: {compress_video}\n")
         
         root.destroy()
@@ -218,8 +220,8 @@ def parse_args() -> AppConfig:
 
     parser = argparse.ArgumentParser(description="电影字幕智能分割工具 (Movie Smart Splitter)")
     parser.add_argument('-v', '--video', required=True, help="原始视频文件路径")
-    parser.add_argument('-s', '--subtitle', required=True, help="原始字幕文件路径 (.srt)")
-    parser.add_argument('-s2', '--subtitle2', default="", help="第二字幕文件路径 (.srt, 可选)")
+    parser.add_argument('-s', '--subtitle', required=True, help="英文字幕文件路径 (.srt)")
+    parser.add_argument('-s2', '--subtitle2', default="", help="中文字幕文件路径 (.srt, 可选)")
     parser.add_argument('-o', '--output', default='../output', help="输出目录路径 (默认为 ../output)")
     parser.add_argument('--silence-threshold', type=float, default=30.0, help="静音剔除阈值/秒 (默认 30.0)")
     parser.add_argument('--min-minutes', type=float, default=5.0, help="最小分集时长/分钟 (默认 5.0)")
