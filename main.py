@@ -4,6 +4,15 @@ import tkinter as tk
 from tkinter import filedialog, simpledialog, messagebox
 import argparse
 from dataclasses import dataclass
+
+def get_app_dir() -> str:
+    """获取程序的根目录：打包后为 exe 所在目录，开发时为 main.py 上级目录"""
+    if getattr(sys, 'frozen', False):
+        # 打包为 exe 后，sys.executable 指向 exe 文件本身
+        return os.path.dirname(sys.executable)
+    else:
+        # 开发模式下，__file__ 指向 main.py，上一级为项目根目录
+        return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 from timeline_analyzer import TimelineAnalyzer
 from subtitle_reconstructor import SubtitleReconstructor
 from video_processor import VideoProcessor
@@ -207,11 +216,12 @@ def parse_args() -> AppConfig:
         
         root.destroy()
         
+        default_output = os.path.join(get_app_dir(), 'output')
         return AppConfig(
             video_path=video_path,
             subtitle_path=subtitle_path,
             subtitle_path2=subtitle_path2,
-            output_dir='../output',
+            output_dir=default_output,
             silence_threshold_sec=silence_threshold,
             min_segment_minutes=min_minutes,
             max_segment_minutes=max_minutes,
@@ -222,7 +232,7 @@ def parse_args() -> AppConfig:
     parser.add_argument('-v', '--video', required=True, help="原始视频文件路径")
     parser.add_argument('-s', '--subtitle', required=True, help="英文字幕文件路径 (.srt)")
     parser.add_argument('-s2', '--subtitle2', default="", help="中文字幕文件路径 (.srt, 可选)")
-    parser.add_argument('-o', '--output', default='../output', help="输出目录路径 (默认为 ../output)")
+    parser.add_argument('-o', '--output', default=os.path.join(get_app_dir(), 'output'), help="输出目录路径 (默认与程序同级的 output 文件夹)")
     parser.add_argument('--silence-threshold', type=float, default=30.0, help="静音剔除阈值/秒 (默认 30.0)")
     parser.add_argument('--min-minutes', type=float, default=5.0, help="最小分集时长/分钟 (默认 5.0)")
     parser.add_argument('--max-minutes', type=float, default=10.0, help="最大分集时长/分钟 (默认 10.0)")
