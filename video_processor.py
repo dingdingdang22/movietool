@@ -100,70 +100,110 @@ class VideoProcessor:
             return 0
 
     @classmethod
-    def ensure_audio_separator_installed(cls):
-        """检查并确保 audio-separator 安装成功"""
+    def download_model(cls, url: str, dest_path: str):
+        """下载模型并显示进度"""
+        import urllib.request
+        print(f"[*] 正在从 {url} 下载 AI 模型...")
+        
+        def reporthook(block_num, block_size, total_size):
+            read_so_far = block_num * block_size
+            if total_size > 0:
+                percent = min(100.0, read_so_far * 100 / total_size)
+                if block_num % 1000 == 0:
+                    sys.stdout.write(f"\r下载进度: {percent:.1f}% ({read_so_far / (1024*1024):.1f}MB / {total_size / (1024*1024):.1f}MB)")
+                    sys.stdout.flush()
+            else:
+                sys.stdout.write(f"\r已下载: {read_so_far / (1024*1024):.1f}MB")
+                sys.stdout.flush()
+
+        urllib.request.urlretrieve(url, dest_path, reporthook)
+        print("\n[+] 模型下载完成！")
+
+    @classmethod
+    def ensure_sherpa_onnx_installed(cls):
+        """检查并确保 sherpa-onnx 和 soundfile 安装成功"""
         try:
-            import audio_separator
+            import sherpa_onnx
+            import soundfile
         except ImportError:
-            print("[*] 检测到未安装 AI 人声分离依赖包 (audio-separator)，正在尝试自动安装...")
+            print("[*] 检测到未安装 AI 人声分离依赖包 (sherpa-onnx, soundfile)，正在尝试自动安装...")
             import subprocess
             import sys
             try:
                 subprocess.run(
-                    [sys.executable, "-m", "pip", "install", "audio-separator[cpu]"],
+                    [sys.executable, "-m", "pip", "install", "sherpa-onnx", "soundfile"],
                     check=True
                 )
-                print("[+] AI 人声分离依赖包自动安装成功！")
+                print("[+] AI 依赖包自动安装成功！")
             except Exception as e:
-                logging.error(f"自动安装 AI 人声分离依赖包失败: {e}。请手动运行 pip install audio-separator[cpu]")
-                raise RuntimeError(f"缺失 AI 人声分离依赖包且自动安装失败，详情: {e}")
+                logging.error(f"自动安装依赖包失败: {e}。请手动运行 pip install sherpa-onnx soundfile")
+                raise RuntimeError(f"缺失 AI 依赖包且自动安装失败，详情: {e}")
 
     @classmethod
     def run_ai_vocal_separation(cls, wav_path: str, output_dir: str) -> str:
         """
-        使用 audio-separator 与 UVR-MDX-NET-Inst_HQ_3 模型分离人声，
+        使用 sherpa-onnx 与 UVR_MDXNET_9482 模型分离人声，
         返回生成的纯伴奏（Instrumental）WAV 文件的绝对路径。
         """
-        cls.ensure_audio_separator_installed()
-        from audio_separator.separator import Separator
-        
-        # 确保模型存放目录存在 (models 文件夹在 app 的根目录下)
+        cls.ensure_sherpa_onnx_installed()
+        import sherpa_onnx
+        import soundfile as sf
+        import numpy as np
+
         app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         model_dir = os.path.join(app_dir, 'models')
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
 
-        print("[*] 正在初始化 AI 分离器（首次运行会自动下载约 100MB 深度学习模型，请保持网络畅通并静态等待）...")
+        model_name = 'UVR_MDXNET_9482.onnx'
+        model_path = os.path.join(model_dir, model_name)
         
-        separator = Separator(
-            output_dir=output_dir,
-            model_file_dir=model_dir,
-            log_level=logging.WARNING
+        if not os.path.exists(model_path):
+            url = f"https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/{model_name}"
+            print(f"[!] 未检测到 AI 模型 {model_name}，准备自动从网络下载...")
+            print("如果下载速度过慢或失败，您可以手动下载该文件并放入以下目录：")
+            print(f"目录: {model_dir}")
+            print(f"下载链接: {url}")
+            try:
+                cls.download_model(url, model_path)
+            except Exception as e:
+                if os.path.exists(model_path):
+                    try: os.remove(model_path)
+                    except: pass
+                raise RuntimeError(f"自动下载模型失败: {e}。请根据上方提示手动下载并放置模型文件后再试。")
+
+        print("[*] 正在载入 AI 人声分离模型...")
+        config = sherpa_onnx.OfflineSourceSeparationConfig(
+            model=sherpa_onnx.OfflineSourceSeparationModelConfig(
+                uvr=sherpa_onnx.OfflineSourceSeparationUvrModelConfig(
+                    model=model_path,
+                ),
+                num_threads=4,
+                debug=False,
+                provider="cpu",
+            )
         )
-        
-        model_name = 'UVR-MDX-NET-Inst_HQ_3.onnx'
-        separator.load_model(model_filename=model_name)
-        
+        if not config.validate():
+            raise ValueError("AI 配置文件校验失败，请检查模型文件是否完好。")
+
+        separator = sherpa_onnx.OfflineSourceSeparation(config)
+
+        samples, sample_rate = sf.read(wav_path, dtype="float32", always_2d=True)
+        samples = np.transpose(samples)
+        samples = np.ascontiguousarray(samples)
+
         print("[*] 正在通过 AI 提取背景伴奏音轨（基于 CPU 运算，这可能需要 1~2 分钟，请稍候）...")
-        output_files = separator.separate(wav_path)
+        output = separator.process(sample_rate=sample_rate, samples=samples)
+
+        non_vocals = output.stems[1].data
+        non_vocals = np.transpose(non_vocals)
+
+        part_name = os.path.splitext(os.path.basename(wav_path))[0]
+        temp_inst_path = os.path.join(output_dir, f".temp_inst_{part_name}.wav")
         
-        # 从输出文件中找到 Instrumental (伴奏) 文件，并删除无用的 Vocals 文件
-        inst_path = None
-        for file_name in output_files:
-            if 'Instrumental' in file_name:
-                inst_path = os.path.join(output_dir, file_name)
-            elif 'Vocals' in file_name:
-                vocal_path = os.path.join(output_dir, file_name)
-                try:
-                    if os.path.exists(vocal_path):
-                        os.remove(vocal_path)
-                except OSError as e:
-                    logging.warning(f"清理 AI 临时人声文件失败: {vocal_path}, 原因: {e}")
-                
-        if not inst_path or not os.path.exists(inst_path):
-            raise RuntimeError(f"AI 人声分离未能成功生成伴奏文件！输出列表: {output_files}")
-            
-        return inst_path
+        sf.write(temp_inst_path, non_vocals, samplerate=output.sample_rate)
+        
+        return temp_inst_path
 
     @classmethod
     def cut_video_segment(cls, input_path: str, start_sec: float, end_sec: float, output_path: str, compress: bool = True) -> subprocess.CompletedProcess:

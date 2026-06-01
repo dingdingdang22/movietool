@@ -1,4 +1,4 @@
 # 字幕解析库
 pysrt==1.1.2
-# AI人声分离
-audio-separator[cpu]
+sherpa-onnx
+soundfile
