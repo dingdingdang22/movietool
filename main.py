@@ -1,3 +1,4 @@
+
 import os
 import sys
 import tkinter as tk
@@ -27,7 +28,7 @@ class AppConfig:
     silence_threshold_sec: float = 30.0
     min_segment_minutes: float = 5.0
     max_segment_minutes: float = 10.0
-    compress: bool = False
+    compress: bool = True
 
 class MainController:
     """
@@ -202,10 +203,10 @@ def parse_args() -> AppConfig:
         )
         if max_minutes is None: max_minutes = 10.0
             
-        print("[->] 请在弹出的窗口中确认【是否启用网络串流优化】...")
+        print("[->] 请在弹出的窗口中确认【是否启用720p压缩及双音轨优化】...")
         compress_video = messagebox.askyesno(
             title="参数设置 (4/4)",
-            message="是否启用网络串流优化？\n(转码至720p并开启Web优化，速度较慢但文件更小、支持边下边播)"
+            message="是否启用720p压缩及双音轨优化？\n(已默认开启。开启后会自动提取英文并生成消音伴奏轨，同时压缩为720p。如需保留原始无损音视频，请选择否)"
         )
 
         print(f"\n[+] 视频路径: {video_path}")
@@ -236,7 +237,8 @@ def parse_args() -> AppConfig:
     parser.add_argument('--silence-threshold', type=float, default=30.0, help="静音剔除阈值/秒 (默认 30.0)")
     parser.add_argument('--min-minutes', type=float, default=5.0, help="最小分集时长/分钟 (默认 5.0)")
     parser.add_argument('--max-minutes', type=float, default=10.0, help="最大分集时长/分钟 (默认 10.0)")
-    parser.add_argument('--compress', action='store_true', help="开启视频压缩(720p)及网络串流优化")
+    parser.add_argument('--no-compress', dest='compress', action='store_false', help="关闭视频压缩(720p)及消音双音轨优化")
+    parser.set_defaults(compress=True)
     
     args = parser.parse_args()
     return AppConfig(

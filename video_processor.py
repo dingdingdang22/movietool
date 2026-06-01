@@ -46,11 +46,134 @@ class VideoProcessor:
         return result
 
     @classmethod
-    def cut_video_segment(cls, input_path: str, start_sec: float, end_sec: float, output_path: str, compress: bool = False) -> subprocess.CompletedProcess:
+    def get_english_audio_track_index(cls, input_path: str) -> int:
         """
-        任务 3.2: 实现单段视频的高速流拷贝裁剪。
-        任务 3.6: 增加 compress 参数支持，转码为 720p、H.264、AAC 以保障 iPhone Safari 兼容性，并启用 Web 优化。
-        利用 FFmpeg 的快速定位机制和 stream copy 实现无损极速裁剪。
+        运行 ffmpeg -i 获取媒体信息，解析并寻找英文(eng/english)音轨。
+        返回音频轨的 0-based 索引（例如第一个音轨返回 0，第二个返回 1）。
+        如果没找到英文音轨，默认返回 0。如果没有音轨，返回 -1。
+        """
+        import re
+        try:
+            cmd = [cls.get_ffmpeg_path(), '-i', input_path]
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding='utf-8',
+                errors='replace'
+            )
+            output = result.stderr
+            
+            audio_streams = []
+            current_stream = None
+            audio_counter = 0
+            
+            for line in output.splitlines():
+                if 'Stream #0:' in line and 'Audio:' in line:
+                    current_stream = {
+                        'index': audio_counter,
+                        'raw_line': line,
+                        'metadata': []
+                    }
+                    audio_streams.append(current_stream)
+                    audio_counter += 1
+                elif current_stream is not None:
+                    if 'Stream #0:' in line:
+                        current_stream = None
+                    else:
+                        current_stream['metadata'].append(line)
+            
+            if not audio_streams:
+                return -1
+                
+            for stream in audio_streams:
+                if re.search(r'\((eng|english)\)', stream['raw_line'], re.IGNORECASE):
+                    return stream['index']
+                for meta in stream['metadata']:
+                    if re.search(r'(language|title)\s*:\s*(eng|english|英文)', meta, re.IGNORECASE):
+                        return stream['index']
+                        
+            return 0
+        except Exception as e:
+            logging.error(f"解析音轨失败: {e}，默认使用第一轨")
+            return 0
+
+    @classmethod
+    def ensure_audio_separator_installed(cls):
+        """检查并确保 audio-separator 安装成功"""
+        try:
+            import audio_separator
+        except ImportError:
+            print("[*] 检测到未安装 AI 人声分离依赖包 (audio-separator)，正在尝试自动安装...")
+            import subprocess
+            import sys
+            try:
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "audio-separator[cpu]"],
+                    check=True
+                )
+                print("[+] AI 人声分离依赖包自动安装成功！")
+            except Exception as e:
+                logging.error(f"自动安装 AI 人声分离依赖包失败: {e}。请手动运行 pip install audio-separator[cpu]")
+                raise RuntimeError(f"缺失 AI 人声分离依赖包且自动安装失败，详情: {e}")
+
+    @classmethod
+    def run_ai_vocal_separation(cls, wav_path: str, output_dir: str) -> str:
+        """
+        使用 audio-separator 与 UVR-MDX-NET-Inst_HQ_3 模型分离人声，
+        返回生成的纯伴奏（Instrumental）WAV 文件的绝对路径。
+        """
+        cls.ensure_audio_separator_installed()
+        from audio_separator.separator import Separator
+        
+        # 确保模型存放目录存在 (models 文件夹在 app 的根目录下)
+        app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        model_dir = os.path.join(app_dir, 'models')
+        if not os.path.exists(model_dir):
+            os.makedirs(model_dir)
+
+        print("[*] 正在初始化 AI 分离器（首次运行会自动下载约 100MB 深度学习模型，请保持网络畅通并静态等待）...")
+        
+        separator = Separator(
+            output_dir=output_dir,
+            model_file_dir=model_dir,
+            log_level=logging.WARNING
+        )
+        
+        model_name = 'UVR-MDX-NET-Inst_HQ_3.onnx'
+        separator.load_model(model_filename=model_name)
+        
+        print("[*] 正在通过 AI 提取背景伴奏音轨（基于 CPU 运算，这可能需要 1~2 分钟，请稍候）...")
+        output_files = separator.separate(wav_path)
+        
+        # 从输出文件中找到 Instrumental (伴奏) 文件，并删除无用的 Vocals 文件
+        inst_path = None
+        for file_name in output_files:
+            if 'Instrumental' in file_name:
+                inst_path = os.path.join(output_dir, file_name)
+            elif 'Vocals' in file_name:
+                vocal_path = os.path.join(output_dir, file_name)
+                try:
+                    if os.path.exists(vocal_path):
+                        os.remove(vocal_path)
+                except OSError as e:
+                    logging.warning(f"清理 AI 临时人声文件失败: {vocal_path}, 原因: {e}")
+                
+        if not inst_path or not os.path.exists(inst_path):
+            raise RuntimeError(f"AI 人声分离未能成功生成伴奏文件！输出列表: {output_files}")
+            
+        return inst_path
+
+    @classmethod
+    def cut_video_segment(cls, input_path: str, start_sec: float, end_sec: float, output_path: str, compress: bool = True) -> subprocess.CompletedProcess:
+        """
+        实现单段视频的高速裁剪，并生成 AI 消音双音轨。
+        1. 寻找英文音轨；
+        2. 裁剪原声英文视频为临时文件；
+        3. 提取原声英文音轨为 WAV 文件；
+        4. 调用 AI (UVR-MDX-NET) 分离伴奏；
+        5. 合并原声与 AI 伴奏，生成双音轨视频（720p 默认压缩）。
         
         :param input_path: 原始视频路径
         :param start_sec: 截取起始时间 (秒)
@@ -58,30 +181,114 @@ class VideoProcessor:
         :param output_path: 输出视频片段的路径
         :param compress: 是否开启转码压缩和网络串流优化
         """
-        command = [
-            cls.get_ffmpeg_path(),
-            '-y',                  # 强制覆盖同名输出文件
-            '-ss', str(start_sec), # 起始时间
-            '-to', str(end_sec),   # 结束时间
-            '-i', input_path       # 输入文件
-        ]
-        if compress:
-            command.extend([
-                '-vf', 'scale=-2:720',      # 等比例缩放，高度限制为 720p (宽度自动适配偶数)
-                '-c:v', 'libx264',          # 视频使用 H.264 编码
-                '-pix_fmt', 'yuv420p',      # 强制像素格式为 yuv420p，避免源视频(如10bit)导致 Safari/iOS 无法播放
-                '-crf', '28',               # 提高 CRF 值 (23->28)，数值越大体积越小，28是低码率较高画质的甜点值
-                '-preset', 'slow',          # 使用 slow 预设，用稍长的编码时间换取更小的文件体积
-                '-c:a', 'aac',              # 音频强制使用 AAC 编码，以满足 iPhone/Safari 的兼容性要求
-                '-ac', '2',                 # 强制双声道立体声，避免 5.1 等多声道导致 AAC 编码器报错或移动端无声
-                '-b:a', '96k',              # 降低音频码率到 96k (人声对话场景完全足够)
-                '-movflags', '+faststart'   # Web 串流优化，便于边下边播
-            ])
-        else:
-            command.extend(['-c', 'copy'])  # 音视频流直接拷贝，免重新编码
+        eng_idx = cls.get_english_audio_track_index(input_path)
+        
+        output_dir = os.path.dirname(os.path.abspath(output_path))
+        part_name = os.path.splitext(os.path.basename(output_path))[0]
+        
+        # 定义临时文件路径
+        temp_video_path = os.path.join(output_dir, f".temp_vid_{part_name}.mp4")
+        temp_eng_wav = os.path.join(output_dir, f".temp_eng_{part_name}.wav")
+        temp_inst_wav = None
+
+        try:
+            # 1. 裁剪视频并转码（保留原声英文音轨）
+            cmd_cut = [
+                cls.get_ffmpeg_path(),
+                '-y',
+                '-ss', str(start_sec),
+                '-to', str(end_sec),
+                '-i', input_path
+            ]
+            if eng_idx >= 0:
+                cmd_cut.extend(['-map', '0:v:0', '-map', f'0:a:{eng_idx}'])
+            else:
+                cmd_cut.extend(['-map', '0:v:0'])
+
+            if compress:
+                cmd_cut.extend([
+                    '-vf', 'scale=-2:720',
+                    '-c:v', 'libx264',
+                    '-pix_fmt', 'yuv420p',
+                    '-crf', '28',
+                    '-preset', 'slow',
+                ])
+                if eng_idx >= 0:
+                    cmd_cut.extend([
+                        '-c:a', 'aac',
+                        '-ac', '2',
+                        '-b:a', '96k'
+                    ])
+            else:
+                if eng_idx >= 0:
+                    cmd_cut.extend(['-c:v', 'copy', '-c:a', 'copy'])
+                else:
+                    cmd_cut.extend(['-c:v', 'copy'])
             
-        command.append(output_path)
-        return cls.run_ffmpeg(command)
+            cmd_cut.append(temp_video_path)
+            cls.run_ffmpeg(cmd_cut)
+
+            # 如果没有音频轨，直接重命名并返回
+            if eng_idx < 0:
+                if os.path.exists(output_path):
+                    os.remove(output_path)
+                os.rename(temp_video_path, output_path)
+                return subprocess.CompletedProcess(cmd_cut, 0)
+
+            # 2. 提取原声英文轨为无损 WAV，准备 AI 分离
+            cmd_ext = [
+                cls.get_ffmpeg_path(),
+                '-y',
+                '-ss', str(start_sec),
+                '-to', str(end_sec),
+                '-i', input_path,
+                '-map', f'0:a:{eng_idx}',
+                '-c:a', 'pcm_s16le',
+                '-ac', '2',
+                temp_eng_wav
+            ]
+            cls.run_ffmpeg(cmd_ext)
+
+            # 3. 运行 AI 分离获取伴奏 WAV
+            temp_inst_wav = cls.run_ai_vocal_separation(temp_eng_wav, output_dir)
+
+            # 4. 双音轨封装
+            cmd_merge = [
+                cls.get_ffmpeg_path(),
+                '-y',
+                '-i', temp_video_path,
+                '-i', temp_inst_wav,
+                '-map', '0:v:0',
+                '-map', '0:a:0',
+                '-map', '1:a:0',
+                '-c:v', 'copy',
+                '-c:a:0', 'copy',
+                '-c:a:1', 'aac',
+                '-ac:1', '2',
+                '-b:a:1', '96k',
+                '-metadata:s:a:0', 'title=English',
+                '-metadata:s:a:1', 'title=Accompaniment'
+            ]
+            if compress:
+                cmd_merge.extend(['-movflags', '+faststart'])
+                
+            cmd_merge.append(output_path)
+            result = cls.run_ffmpeg(cmd_merge)
+            return result
+
+        finally:
+            # 5. 清理所有临时文件
+            for path in [temp_video_path, temp_eng_wav]:
+                try:
+                    if os.path.exists(path):
+                        os.remove(path)
+                except OSError as e:
+                    logging.warning(f"清理临时文件失败: {path}, 原因: {e}")
+            if temp_inst_wav and os.path.exists(temp_inst_wav):
+                try:
+                    os.remove(temp_inst_wav)
+                except OSError:
+                    pass
 
     @classmethod
     def concat_video_segments(cls, segment_paths: List[str], concat_txt_path: str, output_path: str, compress: bool = False) -> subprocess.CompletedProcess:
@@ -109,6 +316,7 @@ class VideoProcessor:
             '-f', 'concat',        # 指定使用 concat 分离器
             '-safe', '0',          # 允许使用绝对路径
             '-i', concat_txt_path, # 输入为生成的 txt 列表文件
+            '-map', '0',           # 显式映射所有流，保留切片中的双音轨
             '-c', 'copy'           # 音视频流直接拷贝，免重新编码
         ]
         if compress:
