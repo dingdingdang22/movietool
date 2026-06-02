@@ -74,24 +74,42 @@ class MainController:
             part_name = f"{base_name}_Part{i:02d}"
             print(f"\n[{i}/{len(self.split_plans)}] 正在处理分集: {part_name}")
             
-            # 1. 调度 Phase 2: 生成该集字幕
-            print(f"    -> [Phase 2] 正在重构并导出字幕...")
+            # 定义输出文件路径并执行断点续做检测
+            final_video_path = os.path.join(self.config.output_dir, f"{part_name}.mp4")
+            concat_txt_path = os.path.join(self.config.output_dir, f"{part_name}_concat.txt")
+            
             if self.config.subtitle_path2:
                 srt_output_path1 = os.path.join(self.config.output_dir, f"{part_name}_en.srt")
                 srt_output_path2 = os.path.join(self.config.output_dir, f"{part_name}_zh.srt")
+                skip_exists = (
+                    os.path.exists(final_video_path) and os.path.getsize(final_video_path) > 0 and
+                    os.path.exists(srt_output_path1) and os.path.getsize(srt_output_path1) > 0 and
+                    os.path.exists(srt_output_path2) and os.path.getsize(srt_output_path2) > 0
+                )
+            else:
+                srt_output_path = os.path.join(self.config.output_dir, f"{part_name}.srt")
+                skip_exists = (
+                    os.path.exists(final_video_path) and os.path.getsize(final_video_path) > 0 and
+                    os.path.exists(srt_output_path) and os.path.getsize(srt_output_path) > 0
+                )
+                
+            if skip_exists:
+                print(f"    [+] 检测到已存在完整的分集视频与字幕文件，跳过该分集。")
+                continue
+            
+            # 1. 调度 Phase 2: 生成该集字幕
+            print(f"    -> [Phase 2] 正在重构并导出字幕...")
+            if self.config.subtitle_path2:
                 episode_dialogues = SubtitleReconstructor.generate_zero_baselined_subtitles(analyzer.dialogues, plan)
                 SubtitleReconstructor.export_to_srt(episode_dialogues, srt_output_path1)
                 episode_dialogues2 = SubtitleReconstructor.generate_zero_baselined_subtitles(secondary_dialogues, plan)
                 SubtitleReconstructor.export_to_srt(episode_dialogues2, srt_output_path2)
             else:
-                srt_output_path = os.path.join(self.config.output_dir, f"{part_name}.srt")
                 episode_dialogues = SubtitleReconstructor.generate_zero_baselined_subtitles(analyzer.dialogues, plan)
                 SubtitleReconstructor.export_to_srt(episode_dialogues, srt_output_path)
             
             # 2. 调度 Phase 3: 生成该集视频
             print(f"    -> [Phase 3] 正在裁剪并合并视频片段...")
-            final_video_path = os.path.join(self.config.output_dir, f"{part_name}.mp4")
-            concat_txt_path = os.path.join(self.config.output_dir, f"{part_name}_concat.txt")
             
             if len(plan.valid_time_ranges) == 1:
                 # 只有一个片段时直接输出为最终文件
