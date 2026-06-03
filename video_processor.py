@@ -169,12 +169,12 @@ class VideoProcessor:
     @classmethod
     def cut_video_segment(cls, input_path: str, start_sec: float, end_sec: float, output_path: str, compress: bool = True) -> subprocess.CompletedProcess:
         """
-        实现单段视频的高速裁剪，并生成 AI 消音双音轨。
+        实现单段视频的高速裁剪，并生成 AI 消音左右声道。
         1. 寻找英文音轨；
         2. 裁剪原声英文视频为临时文件；
         3. 提取原声英文音轨为 WAV 文件；
         4. 调用 AI (UVR-MDX-NET) 分离伴奏；
-        5. 合并原声与 AI 伴奏，生成双音轨视频（720p 默认压缩）。
+        5. 合并原声与 AI 伴奏，生成单音轨双声道视频（左声道原声，右声道伴奏，720p 默认压缩）。
         
         :param input_path: 原始视频路径
         :param start_sec: 截取起始时间 (秒)
@@ -253,22 +253,20 @@ class VideoProcessor:
             # 3. 运行 AI 分离获取伴奏 WAV
             temp_inst_wav = cls.run_ai_vocal_separation(temp_eng_wav, output_dir)
 
-            # 4. 双音轨封装
+            # 4. 左右双声道封装（左声道英文原音，右声道伴奏）
             cmd_merge = [
                 cls.get_ffmpeg_path(),
                 '-y',
                 '-i', temp_video_path,
                 '-i', temp_inst_wav,
+                '-filter_complex', '[0:a:0]aformat=channel_layouts=mono[eng];[1:a:0]aformat=channel_layouts=mono[inst];[eng][inst]amerge=inputs=2[a]',
                 '-map', '0:v:0',
-                '-map', '0:a:0',
-                '-map', '1:a:0',
+                '-map', '[a]',
                 '-c:v', 'copy',
-                '-c:a:0', 'copy',
-                '-c:a:1', 'aac',
-                '-ac:1', '2',
-                '-b:a:1', '96k',
-                '-metadata:s:a:0', 'title=English',
-                '-metadata:s:a:1', 'title=Accompaniment'
+                '-c:a', 'aac',
+                '-ac', '2',
+                '-b:a', '128k',
+                '-metadata:s:a:0', 'title=L:English R:Accompaniment'
             ]
             if compress:
                 cmd_merge.extend(['-movflags', '+faststart'])
@@ -317,7 +315,7 @@ class VideoProcessor:
             '-f', 'concat',        # 指定使用 concat 分离器
             '-safe', '0',          # 允许使用绝对路径
             '-i', concat_txt_path, # 输入为生成的 txt 列表文件
-            '-map', '0',           # 显式映射所有流，保留切片中的双音轨
+            '-map', '0',           # 显式映射所有流，保留切片中的左右声道音频
             '-c', 'copy'           # 音视频流直接拷贝，免重新编码
         ]
         if compress:

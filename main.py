@@ -221,10 +221,10 @@ def parse_args() -> AppConfig:
         )
         if max_minutes is None: max_minutes = 10.0
             
-        print("[->] 请在弹出的窗口中确认【是否启用720p压缩及双音轨优化】...")
+        print("[->] 请在弹出的窗口中确认【是否启用720p压缩及左右双声道优化】...")
         compress_video = messagebox.askyesno(
             title="参数设置 (4/4)",
-            message="是否启用720p压缩及双音轨优化？\n(已默认开启。开启后会自动提取英文并生成消音伴奏轨，同时压缩为720p。如需保留原始无损音视频，请选择否)"
+            message="是否启用720p压缩及左右双声道优化？\n(已默认开启。开启后会自动生成左右声道音频轨（左原音/右伴奏），同时压缩为720p。如需保留原始无损音视频，请选择否)"
         )
 
         print(f"\n[+] 视频路径: {video_path}")
@@ -255,7 +255,7 @@ def parse_args() -> AppConfig:
     parser.add_argument('--silence-threshold', type=float, default=30.0, help="静音剔除阈值/秒 (默认 30.0)")
     parser.add_argument('--min-minutes', type=float, default=5.0, help="最小分集时长/分钟 (默认 5.0)")
     parser.add_argument('--max-minutes', type=float, default=10.0, help="最大分集时长/分钟 (默认 10.0)")
-    parser.add_argument('--no-compress', dest='compress', action='store_false', help="关闭视频压缩(720p)及消音双音轨优化")
+    parser.add_argument('--no-compress', dest='compress', action='store_false', help="关闭视频压缩(720p)及消音双声道优化")
     parser.set_defaults(compress=True)
     
     args = parser.parse_args()
